@@ -1,0 +1,7 @@
+*.idea*
+*.DS_*
+
+*.csv
+*.json
+*.npy
+*.hdf5
