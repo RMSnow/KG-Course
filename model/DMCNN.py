@@ -28,11 +28,12 @@ from keras.layers import Dropout, Dense, Concatenate, Reshape, Multiply
 class DMCNN:
     def __init__(self, max_sequence_length, embedding_matrix,
                  window_size=3, filters_num=200, pf_dim=5, invalid_flag=-1,
-                 output=7, l2_param=0.01, lr_param=0.001):
+                 output=8, l2_param=0.01, lr_param=0.001):
         self.steps = max_sequence_length
         self.embedding_matrix = embedding_matrix
         self.window = window_size
         self.filters = filters_num
+        self.dim = embedding_matrix.shape[1]
         self.pf_dim = pf_dim
         self.invalid_flag = invalid_flag
         self.output = output
@@ -72,32 +73,34 @@ class DMCNN:
         # [n, steps, steps, dim + pf_dim]
         sentence_level = Concatenate(name='SentenceLevel')([cwf_repeat, pf_emb])
 
-        # [n, steps, steps - window + 1, filters]
-        conv = TimeDistributed(
-            Conv1D(filters=self.filters, kernel_size=self.window, activation='relu'),
-            name='conv')(sentence_level)
-
-        cnn_multi_poolings = []
+        sentence_masks = []
         for i in range(3):
-            # [n, steps, 3, steps] -> [n, steps, steps - window + 1]
-            # -> [n, steps, steps - window + 1, 1] * [n, steps, steps - window + 1, filters]
-            # -> [n, steps, steps - window + 1, filters]
-            mask = Lambda(
-                lambda x: K.expand_dims(x[:, :, i, :self.steps - self.window + 1], axis=-1),
-                name='mask{}'.format(i))(event_words_mask_input)
-            conv_mask = Multiply(name='conv_mask{}'.format(i))([mask, conv])
+            # [n, steps, 3, steps] -> [n, steps, steps] -> [n, steps, steps, 1]
+            sentence_mask = Lambda(
+                lambda x: K.expand_dims(x[0][:, :, i, :], axis=-1) * x[1],
+                name='mask{}'.format(i))([event_words_mask_input, sentence_level])
 
-            # [n, steps, 1, filters]
-            conv_pool = TimeDistributed(
-                MaxPooling1D(self.steps - self.window + 1), name='max_pooling{}'.format(i))(conv_mask)
-            # [n, steps, filters]
-            conv_flat = TimeDistributed(Flatten(), name='flatten{}'.format(i))(conv_pool)
-            cnn = TimeDistributed(Dropout(0.5), name='dropout{}'.format(i))(conv_flat)
+            # [n, steps, steps, dim + pf_dim] -> [n, steps, 1, steps, dim + pf_dim]
+            sentence_mask_reshape = Lambda(lambda x: K.expand_dims(x, axis=2),
+                                           name='sentence_mask_reshape{}'.format(i))(sentence_mask)
 
-            cnn_multi_poolings.append(cnn)
+            sentence_masks.append(sentence_mask_reshape)
 
+        # [n, steps, 3, steps, dim + pf_dim]
+        sentence = Concatenate(name='SentenceLevelMask', axis=2)(sentence_masks)
+
+        # [n, steps, 3, steps - window + 1, filters]
+        conv = TimeDistributed(
+            TimeDistributed(Conv1D(filters=self.filters, kernel_size=self.window, activation='relu')),
+            name='conv')(sentence)
+
+        # [n, steps, 3, 1, filters]
+        conv_pool = TimeDistributed(
+            TimeDistributed(MaxPooling1D(self.steps - self.window + 1)),
+            name='max_pooling')(conv)
         # [n, steps, 3 * filters]
-        cnn_multi_poolings = Concatenate(name='DynamicMaxPooling')(cnn_multi_poolings)
+        conv_flatten = TimeDistributed(Flatten(), name='flatten')(conv_pool)
+        cnn = TimeDistributed(Dropout(0.5), name='dropout')(conv_flatten)
 
         # ----------------------------------------------------------------------- #
 
@@ -114,7 +117,7 @@ class DMCNN:
         # ----------------------------------------------------------------------- #
 
         # [n, steps, 3 * filters + 6 * dim]
-        fusion = Concatenate(name='LexicalAndSentence')([cnn_multi_poolings, lexical_level])
+        fusion = Concatenate(name='LexicalAndSentence')([cnn, lexical_level])
 
         # [n, steps, 32]
         dense = TimeDistributed(
