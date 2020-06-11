@@ -203,8 +203,3 @@ def predict(model, model_file, test_data, test_label):
 
     model_name = model_file.split('/')[-1].split('.')[0]
     np.save('./predict/y_pred_{}.npy'.format(model_name), y_pred)
-
-    event_type = ['none', 'action', 'emergency', 'movement',
-                  'operation', 'perception', 'stateChange', 'statement']
-
-    predict_single_classification(y_pred, test_label, labels_names=event_type)
