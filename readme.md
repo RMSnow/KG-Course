@@ -8,7 +8,12 @@
 
 ## 代码说明
 
+项目代码在github中托管：<https://github.com/RMSnow/KG-Course>
+
 ### 项目运行依赖
+
+- Python >= 3.5.3
+- Keras == 2.1.2
 
 ### 代码文件说明
 
@@ -21,7 +26,7 @@
 			- preprocess.ipynb(预处理、数据分析的代码)
 		- data_load.ipynb(制作模型所需要的各项输入、输出矩阵)
 		- *.npy(模型的输入与输出)
-	- model
+	- model/
 		- img/(由keras自动生成的模型架构图)
 		- model/（训练好的模型参数文件）
 		- predict/（模型预测输出的矩阵）
@@ -142,6 +147,44 @@ CEC数据集中的原始数据为`xml`文件，且每个`xml`文件里对应着�
 
 ## 性能结果
 
+> 注：预测结果，参见`model/*.ipynb`
 
+### Lexical-Level
 
-z
+测试集中共有333个句子，每个句子有若干词语（最大词语数为85）。
+
+Lexical-Level指的是：把所有句子拆分为词语后，在**词语级别**进行检测与分类。对于**Identification任务**而言，每个词语有两种类型：`是/否 为事件触发词`，即是一个二分类任务；对于**Classification任务**而言，每个任务有八种类型：`action`，`emergency`，`movement`，`operation`，`perception`，`stateChange`，`statement`以及`none`（无事件），即是一个八分类任务。
+
+下表展示了三个模型的性能：
+
+|         | Identification  |              |                | Classification  |              |                |
+| ------- | --------------- | ------------ | -------------- | --------------- | ------------ | -------------- |
+|         | Macro Precision | Macro Recall | Macro F1-Score | Macro Precision | Macro Recall | Macro F1-Score |
+| TextCNN | 0.4881          | 0.5000       | 0.4940         | 0.1220          | 0.1250       | 0.1235         |
+| CNN     | 0.9992          | 0.9680       | 0.9831         | 0.5137          | 0.4636       | 0.4507         |
+| DMCNN   | 0.9992          | 0.9665       | 0.9822         | **0.6240**      | **0.4929**   | **0.4906**     |
+
+可以看到：
+
+- TextCNN的性能非常差，明显劣于CNN与DMCNN，说明
+  - TextCNN模型虽然在文本分类任务中被广泛使用，但也许不适用于本项目中这一类似于“序列标注”的任务。
+  - TextCNN模型的输入只有词向量，而忽略了事件触发词、事件元素词的位置关系、上下文关系。因此：对事件抽取任务而言，同时利用事件触发词、元素词的位置关系（即原论文中提到的`句子级别的特征`），以及上下文关系（即原论文中提到的`词级别的特征`，特指触发词、元素词左右两边的词）是十分重要的。
+- CNN与DMCNN相比
+  - 二者在**Identification任务**上表现性能相似，而DMCNN在**Classification任务**上性能卓越，F1值比CNN高出将近4个点。
+  - CNN与DMCNN的唯一区别，即是否使用论文中提出的`Dynamic Multi-Pooling`，此结果也表明由事件触发词、事件元素词所切分而形成的`Dynamic Multi-Pooling`对于事件抽取任务的重要性。
+
+### Sentence-Level
+
+测试集中共有333个句子，每个句子有若干词语（最大词语数为85），其中至少包含一个事件触发词。
+
+Sentence-Level指的是：对于**整个句子**而言，进行检测与分类。对于**Identification任务**而言，对一个句子样本而言，当且仅当对其所有词语的检测均正确时，才判为检测正确；对于**Classification任务**而言，对一个句子样本而言，当且仅当对其所有词语的分类均正确时，才判为分类正确。
+
+下表展示了三个模型的性能：
+
+|         | Identification Accuracy | Classification Accuracy |
+| ------- | ----------------------- | ----------------------- |
+| TextCNN | 0                       | 0                       |
+| CNN     | 0.8799                  | 0.3453                  |
+| DMCNN   | 0.8769                  | 0.3453                  |
+
+结果与Lexical-Level相似：TextCNN性能很差，对333个样本，全部未能检测；而CNN与DMCNN模型的性能相似。
